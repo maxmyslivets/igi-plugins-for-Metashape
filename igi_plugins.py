@@ -9,7 +9,7 @@ TOP_MENU = 'ИГИ'
 
 def about():
     webbrowser.open(
-        url='https://github.com/maxmyslivets/shape-translation-from-metashape-to-autocad/blob/main/README.md',
+        url='https://github.com/maxmyslivets/igi-plugins-for-Metashape/blob/main/README.md',
         new=2)
 
 
