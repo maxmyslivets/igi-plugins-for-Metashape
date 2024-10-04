@@ -1,2 +1,2 @@
-# shape_translation_from_metashape_to_autocad
+# shape-translation-from-metashape-to-autocad
 Плагин Agisoft Metashape для трансляции фигур в Autocad.
