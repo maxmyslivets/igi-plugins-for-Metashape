@@ -1,8 +1,14 @@
+from itertools import chain
+
 import Metashape as ms
 
-from pyautocad.api import Autocad
-from pyautocad import APoint, aDouble
-from itertools import chain
+try:
+    from pyautocad.api import Autocad
+    from pyautocad import APoint, aDouble
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyautocad"])
+    from pyautocad.api import Autocad
+    from pyautocad import APoint, aDouble
 
 
 def main():
