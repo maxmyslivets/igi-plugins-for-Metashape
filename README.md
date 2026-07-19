@@ -14,4 +14,5 @@
 
 ## Список плагинов
 ### Взаимодействие с Autocad
-1. [Перенос фигур в Autocad](https://github.com/maxmyslivets/igi-plugins-for-Metashape/blob/dev/src/shape_transfer/README.md)
+1. [Перенос фигур в Autocad](https://github.com/maxmyslivets/igi-plugins-for-Metashape/blob/main/src/shape_transfer/README.md)
+2. [Получение высоты из ЦММ в Autocad](https://github.com/maxmyslivets/igi-plugins-for-Metashape/blob/main/src/get_dem_height/README.md)
