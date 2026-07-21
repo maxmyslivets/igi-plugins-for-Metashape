@@ -65,41 +65,92 @@ def get_point():
             print(e)
             break
 
+# ----------------------------------------------------------------------
+# Асимметричная случайная длина шага
+# ----------------------------------------------------------------------
+def step_error(step, dec_percent, inc_percent):
+    """
+    Возвращает длину шага в диапазоне:
+    от step * (1 - dec_percent/100) до step * (1 + inc_percent/100).
+    Пример: step=20, dec=15%, inc=5% -> [17.0, 21.0]
+    """
+    min_val = step * (1.0 - dec_percent / 100.0)
+    max_val = step * (1.0 + inc_percent / 100.0)
+    return random.uniform(min_val, max_val)
 
-# Создаем класс диалогового окна в стиле Metashape
+
+# ----------------------------------------------------------------------
+# Обновлённый диалог с раздельными процентами уменьшения/увеличения
+# ----------------------------------------------------------------------
 class GridSettingsDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Параметры сетки")
-        self.setFixedSize(380, 200)
-
-        # Делаем окно модальным и всегда поверх самого Metashape
+        self.setWindowTitle("Параметры сетки и шага")
+        self.setFixedSize(380, 280)          # увеличена высота под дополнительные поля
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowStaysOnTopHint)
-
         self.init_ui()
 
     def init_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
 
-        # Информационная строка
-        self.status_label = QtWidgets.QLabel("Шаг 1: Задайте настройки и нажмите 'Далее'")
+        # Заголовок
+        self.status_label = QtWidgets.QLabel("Шаг 1: Настройте параметры и нажмите 'Далее'")
         self.status_label.setStyleSheet("font-weight: bold; color: #55aaff;")
         layout.addWidget(self.status_label)
 
-        # Поле ввода шага сетки
+        # Шаг сетки
         step_layout = QtWidgets.QHBoxLayout()
-        step_label = QtWidgets.QLabel("Расстояние между точками сетки (м):")
+        step_label = QtWidgets.QLabel("Расстояние между точками (м):")
         self.step_spinbox = QtWidgets.QDoubleSpinBox()
         self.step_spinbox.setRange(0.1, 1000.0)
-        self.step_spinbox.setValue(10.0)
+        self.step_spinbox.setValue(20.0)
         self.step_spinbox.setDecimals(2)
         step_layout.addWidget(step_label)
         step_layout.addWidget(self.step_spinbox)
         layout.addLayout(step_layout)
 
-        # Чекбокс направления
+        # Учёт направления
         self.align_checkbox = QtWidgets.QCheckBox("Учесть направление (выбрать линию в AutoCAD)")
         layout.addWidget(self.align_checkbox)
+
+        # Разделитель
+        line = QtWidgets.QFrame()
+        line.setFrameShape(QtWidgets.QFrame.HLine)
+        line.setFrameShadow(QtWidgets.QFrame.Sunken)
+        layout.addWidget(line)
+
+        # Блок неравномерного шага
+        self.error_checkbox = QtWidgets.QCheckBox("Имитировать неравномерный шаг (ходьба человека)")
+        layout.addWidget(self.error_checkbox)
+
+        # Параметры асимметричного отклонения
+        error_param_layout = QtWidgets.QHBoxLayout()
+        error_param_layout.addWidget(QtWidgets.QLabel("Уменьшение, %:"))
+        self.dec_percent = QtWidgets.QDoubleSpinBox()
+        self.dec_percent.setRange(0.0, 100.0)
+        self.dec_percent.setValue(15.0)       # по умолчанию до -15%
+        self.dec_percent.setDecimals(1)
+        self.dec_percent.setSingleStep(1.0)
+        error_param_layout.addWidget(self.dec_percent)
+        error_param_layout.addStretch()
+        layout.addLayout(error_param_layout)
+
+        inc_param_layout = QtWidgets.QHBoxLayout()
+        inc_param_layout.addWidget(QtWidgets.QLabel("Увеличение, %:"))
+        self.inc_percent = QtWidgets.QDoubleSpinBox()
+        self.inc_percent.setRange(0.0, 100.0)
+        self.inc_percent.setValue(5.0)        # по умолчанию до +5%
+        self.inc_percent.setDecimals(1)
+        self.inc_percent.setSingleStep(1.0)
+        inc_param_layout.addWidget(self.inc_percent)
+        inc_param_layout.addStretch()
+        layout.addLayout(inc_param_layout)
+
+        # Блокировка полей, пока чекбокс не активен
+        self.dec_percent.setEnabled(False)
+        self.inc_percent.setEnabled(False)
+        self.error_checkbox.toggled.connect(self.dec_percent.setEnabled)
+        self.error_checkbox.toggled.connect(self.inc_percent.setEnabled)
 
         layout.addSpacing(10)
 
@@ -111,10 +162,16 @@ class GridSettingsDialog(QtWidgets.QDialog):
     def get_values(self):
         return {
             "step": self.step_spinbox.value(),
-            "align": self.align_checkbox.isChecked()
+            "align": self.align_checkbox.isChecked(),
+            "random_error": self.error_checkbox.isChecked(),
+            "dec_percent": self.dec_percent.value(),
+            "inc_percent": self.inc_percent.value()
         }
 
 
+# ----------------------------------------------------------------------
+# Основная функция генерации сетки (асимметричное накопление ошибки)
+# ----------------------------------------------------------------------
 def get_grid():
     print("Запуск генерации сетки высот из ЦММ...")
 
@@ -126,7 +183,7 @@ def get_grid():
     dem = chunk.elevation
     acad = Autocad()
 
-    # Вспомогательная функция для безопасного выбора объекта в AutoCAD
+    # Вспомогательная функция выбора объекта в AutoCAD
     def get_object_via_set(prompt_text):
         set_name = f"GridSet_{random.randint(1000, 9999)}"
         try:
@@ -153,25 +210,25 @@ def get_grid():
             except Exception:
                 pass
 
-    # --- Инициализация PySide интерфейса ---
-    # Привязываем окно к Metashape MainWindow, чтобы унаследовать тему (Dark/Light)
+    # Диалог
     app = QtWidgets.QApplication.instance()
     parent_window = app.activeWindow() if app else None
-
     dialog = GridSettingsDialog(parent=parent_window)
 
-    # exec_() блокирует интерфейс Metashape, пока пользователь не нажмет кнопку
     if dialog.exec_() != QtWidgets.QDialog.Accepted:
         print("Генерация сетки отменена пользователем.")
         return
 
-    # Получаем параметры из красивого Qt-окна
-    ui_params = dialog.get_values()
-    step = ui_params["step"]
-    align_to_line = ui_params["align"]
+    ui = dialog.get_values()
+    step = ui["step"]
+    align_to_line = ui["align"]
+    use_random_step = ui["random_error"]
+    dec_percent = ui["dec_percent"]
+    inc_percent = ui["inc_percent"]
+
     angle = 0.0
 
-    # --- ВЫБОР ГРАНИЦЫ В AUTOCAD ---
+    # Выбор границы
     boundary_obj = get_object_via_set("Выберите ЗАМКНУТУЮ полилинию-границу в AutoCAD...")
     if not boundary_obj or "Polyline" not in boundary_obj.ObjectName:
         ms.app.messageBox("Ошибка: Вы должны выбрать именно ПОЛИЛИНИЮ!")
@@ -179,7 +236,6 @@ def get_grid():
 
     coords = boundary_obj.Coordinates
     poly_points = [(coords[i], coords[i + 1]) for i in range(0, len(coords), 2)]
-
     if len(poly_points) < 3:
         ms.app.messageBox("Ошибка: В полилинии слишком мало вершин!")
         return
@@ -187,7 +243,7 @@ def get_grid():
     polygon = Polygon(poly_points)
     min_x, min_y, max_x, max_y = polygon.bounds
 
-    # --- ВЫБОР НАПРАВЛЕНИЯ В AUTOCAD ---
+    # Выбор направления
     if align_to_line:
         line_obj = get_object_via_set("Выберите ОТРЕЗОК или ПОЛИЛИНИЮ для направления...")
         if line_obj and hasattr(line_obj, 'Coordinates'):
@@ -199,7 +255,6 @@ def get_grid():
         else:
             print("Направляющая линия не распознана. Угол сброшен на 0°.")
 
-    # --- МАТЕМАТИЧЕСКИЙ РАСЧЕТ И ОТРИСОВКА ---
     cos_a = math.cos(angle)
     sin_a = math.sin(angle)
 
@@ -207,34 +262,80 @@ def get_grid():
     center_x = (min_x + max_x) / 2
     center_y = (min_y + max_y) / 2
 
+    # Диапазон шагов
     max_steps = int(diag / step) + 2
-    points_created = 0
 
+    # ================================================================
+    # Генерация случайных последовательностей шагов для строк/столбцов
+    # ================================================================
+    rows = 2 * max_steps + 1   # i от -max_steps до max_steps
+    cols = 2 * max_steps + 1   # j
+
+    # row_u[i][j] – накопленная горизонтальная координата для строки i, столбца j
+    # i и j здесь локальные индексы от 0 до rows-1, cols-1
+    # Удобно сразу хранить в словаре или списке списков.
+    row_u = []   # row_u[i] – список длиной cols для строки i
+    for i in range(rows):
+        # Начинаем с нуля в центральном столбце (индекс centre_col = max_steps)
+        # Будем генерировать вправо и влево независимо.
+        seq = [0.0] * cols
+        centre = max_steps
+        # От центра вправо (j > centre)
+        for j in range(centre + 1, cols):
+            d = step_error(step, dec_percent, inc_percent) if use_random_step else step
+            seq[j] = seq[j-1] + d
+        # От центра влево (j < centre)
+        for j in range(centre - 1, -1, -1):
+            d = step_error(step, dec_percent, inc_percent) if use_random_step else step
+            seq[j] = seq[j+1] - d   # идём от центра влево, поэтому вычитаем шаг
+        row_u.append(seq)
+
+    # col_v[j][i] – вертикальная координата для столбца j, строки i
+    col_v = []
+    for j in range(cols):
+        seq = [0.0] * rows
+        centre = max_steps
+        # Вниз (i > centre)
+        for i in range(centre + 1, rows):
+            d = step_error(step, dec_percent, inc_percent) if use_random_step else step
+            seq[i] = seq[i-1] + d
+        # Вверх (i < centre)
+        for i in range(centre - 1, -1, -1):
+            d = step_error(step, dec_percent, inc_percent) if use_random_step else step
+            seq[i] = seq[i+1] - d
+        col_v.append(seq)
+
+    # Индексы в цикле будут от 0 до rows-1, где 0 соответствует -max_steps
+    # Преобразование: i_global от -max_steps до max_steps -> i_local = i_global + max_steps
+    offset = max_steps
+
+    points_created = 0
     print("Расчет сетки и нанесение высотных отметок...")
 
-    for i in range(-max_steps, max_steps):
-        for j in range(-max_steps, max_steps):
-            u = i * step
-            v = j * step
+    for i_glob in range(-max_steps, max_steps + 1):
+        i_loc = i_glob + offset
+        for j_glob in range(-max_steps, max_steps + 1):
+            j_loc = j_glob + offset
 
+            # Координаты в локальной системе сетки
+            u = row_u[i_loc][j_loc]   # горизонталь
+            v = col_v[j_loc][i_loc]   # вертикаль
+
+            # Поворот и смещение
             x = center_x + u * cos_a - v * sin_a
             y = center_y + u * sin_a + v * cos_a
 
-            pnt_geo = Point(x, y)
-            if polygon.contains(pnt_geo):
+            if polygon.contains(Point(x, y)):
                 z = get_dem_height(dem, x, y)
-
                 if z is not None:
                     try:
-                        # Отрисовка текста в AutoCAD
                         acad.model.AddText(f"{z:.2f}", APoint(x, y, z), 0.5)
                         points_created += 1
                     except Exception as pnt_err:
-                        print(f"Пропущена точка из-за занятости шины COM: {pnt_err}")
+                        print(f"Пропущена точка из-за ошибки COM: {pnt_err}")
 
     print(f"Успешно создано точек сетки: {points_created}")
     ms.app.messageBox(f"Генерация завершена!\nУспешно нанесено точек на чертеж: {points_created}")
-
 
 # Окно параметров остается прежним
 class LineSettingsDialog(QtWidgets.QDialog):
